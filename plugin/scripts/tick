@@ -43,6 +43,13 @@ if [ -z "$SESSION_ID" ] || [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH
   exit 0
 fi
 
+# session_id 直接当文件名用（draft / state file），防 ../ 路径穿越
+# Claude Code 产物是 UUID 样式，这里只放行 [A-Za-z0-9_-]
+if [[ ! "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  echo "$(date -Iseconds) skip (invalid session_id format: $SESSION_ID)"
+  exit 0
+fi
+
 STATE_FILE="$TICK_STATE_DIR/$SESSION_ID"
 NOW=$(date +%s)
 
