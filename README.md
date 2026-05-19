@@ -2,48 +2,44 @@
 
 > 让 Claude Code 把每天的"工作过程知识"自动写成开发日记，并随时间蒸馏成长期记忆。
 
-`git log` 只记录 artifact，记不下"为什么这么改、纠结过什么、放弃了什么"——而这才是真正值得回头翻的东西。这套工具用 **Claude Code plugin hooks** 持续抓 session 上下文 + **WakaTime API** 拿量化数据，每晚合成一份结构化、可扫读、可 Dataview 查询的 Markdown 日记，存进 Obsidian vault。
+用 **Claude Code plugin hooks** 持续抓 session 上下文（你在想什么、纠结什么、放弃什么）+ **WakaTime API** 拿量化数据（时长、项目分布、AI 用量），每晚合成一份结构化、可扫读、可 Dataview 查询的 Markdown 日记，存进 Obsidian vault。
 
-> 这是一个**单用户**的个人工具，不是 SaaS。设计目标是放进 `~/.devlog/` 跑着，不打扰，遗忘式记忆。
+> 单用户的个人工具，不是 SaaS。设计目标是放进 `~/.devlog/` 跑着，不打扰，遗忘式记忆。
 
 ---
 
 ## 数据流
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  你和 Claude Code 写代码                                     │
-└────────────────────┬─────────────────────────────────────────┘
-                     │
-   ┌─────────────────┼──────────────────┐
-   │                 │                  │
-   ▼                 ▼                  ▼
-PostToolUse      WakaTime          (git 不参与)
-/ Stop hook      IDE plugin
-   │                 │
-   ▼                 ▼
-plugin/scripts/  wakatime.com
-tick (每 30min   云端
-节流, 防递归)     (你的账户)
-   │                 │
-   ▼                 │
-~/.devlog/           │
-_drafts/             │
-YYYY-MM-DD-          │
- <session>.md        │
-   │                 │
-   └──────┬──────────┘
-          ▼ (21:00 launchd  /  合盖时 sleepwatcher)
-   bin/devlog-daily.sh
-   ├─ 读 _drafts/*
-   ├─ 拉 WakaTime summaries API
-   ├─ 喂 claude -p
-   └─ 写 <vault>/代码日记/YYYY-MM-DD.md
-          │
-          ▼ (顺带触发)
-   bin/devlog-consolidate.sh
-   └─ ≥14 天的日记 → <vault>/代码日记/_长期记忆.md
-       原文件删除
+┌─────────────────────────────────────────────┐
+│  你和 Claude Code 写代码                    │
+└───────────────────┬─────────────────────────┘
+                    │
+       ┌────────────┴────────────┐
+       ▼                         ▼
+  PostToolUse                 WakaTime
+  / Stop hook                 IDE plugin
+       │                         │
+       ▼                         ▼
+  plugin/scripts/            wakatime.com
+  tick (30min 节流,           (你的账户)
+   防递归)                       │
+       │                         │
+       ▼                         │
+  ~/.devlog/_drafts/             │
+   YYYY-MM-DD-<session>.md       │
+       │                         │
+       └────────────┬────────────┘
+                    ▼  (21:00 launchd / 合盖 sleepwatcher)
+            bin/devlog-daily.sh
+            ├─ 读 _drafts/*
+            ├─ 拉 WakaTime summaries API
+            ├─ 喂 claude -p（只写正文，frontmatter+数据卡片由脚本拼）
+            └─ 写 <vault>/YYYY-MM-DD.md
+                    │
+                    ▼  (顺带触发)
+            bin/devlog-consolidate.sh
+            └─ ≥14 天的老日记 → <vault>/_长期记忆.md
 ```
 
 ## 组件清单
@@ -62,7 +58,7 @@ YYYY-MM-DD-          │
 
 ```
 <DEVLOG_VAULT_DIR>/                  ← Obsidian vault 里的目录
-├── 2026-05-19.md                    ← 当日日记（frontmatter + 7 段结构化内容）
+├── 2026-05-19.md                    ← 当日日记（frontmatter + TL;DR + 主题 + 数据卡片）
 ├── 2026-05-18.md
 ├── ... 最近 14 天 ...
 └── _长期记忆.md                     ← 超过 14 天的明细蒸馏到这里
@@ -84,7 +80,7 @@ type: devlog
 # 2026-05-19 开发日记
 
 > [!tldr] 一句话总结
-> 把代码日记从 git log 改成 Claude session + WakaTime 双线...
+> self-test 卡 120s 一路挖到三层根因，顺手给 install 链补 timeout 护栏。
 
 ## 主题 1：精炼的问题名
 
@@ -216,18 +212,6 @@ claude plugin marketplace remove claude-devlog
 ```
 
 ## 设计要点 / FAQ
-
-### 为什么不用 git？
-
-git log 只能告诉你"做了什么"，但记不下"为什么这么做、试过什么、放弃了什么"——这些 process knowledge 都在你和 Claude 的对话里。当你某天 0 commit 但和 Claude 探讨了一整天某个架构问题，git 完全沉默，Claude session 却能把整段思考保留下来。
-
-### 30 分钟 tick 不会很贵吗？
-
-每次 tick 是一次小 claude 调用（~200 输入 token + 100 输出 token），一天 ~16 次 ≈ $0.05-0.20。日终合成稍贵，加上蒸馏，整套日均 $0.50-1，可接受。配置 `DEVLOG_TICK_INTERVAL` 可拉到 1 小时进一步省。
-
-### Hook 调 `claude -p` 会自递归吗？
-
-会，第一版踩过：4 分钟生 70 个 draft。解决：tick 调下游 claude 时设 `DEVLOG_TICK_NESTED=1`，下游 hook 检测到立刻 short-circuit。
 
 ### 多个 Claude session 同时跑会冲突吗？
 
