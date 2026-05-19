@@ -91,9 +91,10 @@ generate_for_date() {
   fi
 
   # ─── 数据源 2: WakaTime ──────────────────────────────────
+  # 注意：用 `-K -` 从 stdin 读 user，避免 key 进 curl 的 argv 被 ps 看到
   local WAKA_DATA=""
   if [ -n "$WAKA_KEY" ]; then
-    WAKA_DATA=$($CURL -s --max-time 10 -u "$WAKA_KEY:" \
+    WAKA_DATA=$(printf 'user = "%s:"\n' "$WAKA_KEY" | $CURL -s --max-time 10 -K - \
       "https://wakatime.com/api/v1/users/current/summaries?start=$D&end=$D")
   fi
 
@@ -125,8 +126,9 @@ with open(fm_path, 'w', encoding='utf-8') as f:
     f.write('---\n')
     f.write(f'date: {date}\n')
     f.write(f'total_minutes: {total_minutes}\n')
-    f.write(f'projects: [{", ".join(projects)}]\n')
-    f.write(f'languages: [{", ".join(languages)}]\n')
+    # json.dumps 保证 YAML 1.2 兼容：含 , [ ] : 的项目名会被引号包裹转义
+    f.write(f'projects: {json.dumps(projects, ensure_ascii=False)}\n')
+    f.write(f'languages: {json.dumps(languages, ensure_ascii=False)}\n')
     f.write('type: devlog\n')
     f.write('---\n')
 
