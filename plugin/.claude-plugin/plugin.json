@@ -1,0 +1,9 @@
+{
+  "name": "devlog",
+  "description": "在 Claude Code 会话中每隔 30 分钟提取关键决策片段，落到当日 draft 文件供晚间整合进代码日记",
+  "version": "0.1.0",
+  "author": {
+    "name": "claude-devlog"
+  },
+  "keywords": ["devlog", "session-capture", "diary"]
+}

@@ -1,0 +1,19 @@
+# 用户配置真值（含路径，可能敏感）
+config.sh
+
+# 任何 .bak / 编辑器临时文件
+*.bak
+*.bak.*
+*.swp
+*~
+.DS_Store
+
+# 不应该有运行时数据进 repo，但保险
+_drafts/
+_state/
+_run.log
+_tick.log
+_consolidate.log
+_sleep.log
+_launchd.*
+.daily.lock/

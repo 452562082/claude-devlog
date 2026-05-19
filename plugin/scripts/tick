@@ -1,0 +1,179 @@
+#!/bin/bash
+# devlog tick: 在 Claude Code session 里每隔 ~TICK_INTERVAL 提取"做了啥/选了啥"
+# 由 PostToolUse / Stop / SessionEnd hook 异步触发
+
+set -u
+
+# ─── 加载配置 ─────────────────────────────────────────────
+CONFIG="$HOME/.devlog/config.sh"
+if [ -f "$CONFIG" ]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG"
+fi
+
+CLAUDE="${DEVLOG_CLAUDE_BIN:-$(command -v claude)}"
+STATE_DIR="${DEVLOG_STATE_DIR:-$HOME/.devlog}"
+DRAFT_DIR="$STATE_DIR/_drafts"
+TICK_STATE_DIR="$STATE_DIR/_state"
+LOG="$STATE_DIR/_tick.log"
+TICK_INTERVAL="${DEVLOG_TICK_INTERVAL:-1800}"
+
+mkdir -p "$DRAFT_DIR" "$TICK_STATE_DIR" "$(dirname "$LOG")"
+exec >>"$LOG" 2>&1
+
+# ─── 递归守护：tick 调 claude 也会触发新 session 的 hook ────
+if [ -n "${DEVLOG_TICK_NESTED:-}" ]; then
+  echo "$(date -Iseconds) skip (nested call from tick)" >> "$LOG"
+  exit 0
+fi
+
+# ─── 没 claude 二进制就静默退 ─────────────────────────────
+if [ -z "$CLAUDE" ] || [ ! -x "$CLAUDE" ]; then
+  echo "$(date -Iseconds) skip (claude binary not found)" >> "$LOG"
+  exit 0
+fi
+
+# ─── 1. 从 hook stdin 读 session 元信息 ────────────────────
+HOOK_INPUT=$(cat)
+SESSION_ID=$(echo "$HOOK_INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
+TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('transcript_path',''))" 2>/dev/null)
+HOOK_EVENT=$(echo "$HOOK_INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('hook_event_name',''))" 2>/dev/null)
+
+if [ -z "$SESSION_ID" ] || [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
+  exit 0
+fi
+
+STATE_FILE="$TICK_STATE_DIR/$SESSION_ID"
+NOW=$(date +%s)
+
+# ─── 2. 节流：未到 TICK_INTERVAL 直接退（SessionEnd 例外）──────
+LAST=0
+if [ -f "$STATE_FILE" ]; then
+  LAST=$(cat "$STATE_FILE")
+fi
+ELAPSED=$((NOW - LAST))
+
+if [ "$HOOK_EVENT" != "SessionEnd" ] && [ "$ELAPSED" -lt "$TICK_INTERVAL" ]; then
+  exit 0
+fi
+
+echo "===== $(date -Iseconds) tick session=$SESSION_ID event=$HOOK_EVENT elapsed=${ELAPSED}s ====="
+
+# ─── 3. 解析 transcript：取上次 tick 后的 user prompt + assistant text ──────
+SLICE=$(mktemp)
+python3 - "$TRANSCRIPT_PATH" "$LAST" > "$SLICE" <<'PYEOF'
+import json, sys
+from datetime import datetime
+
+path = sys.argv[1]
+since_ts = int(sys.argv[2])
+
+def parse_ts(s):
+    if not s: return 0
+    try:
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
+        return int(datetime.fromisoformat(s).timestamp())
+    except Exception:
+        return 0
+
+items = []
+with open(path, errors='ignore') as f:
+    for line in f:
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+
+        ts = parse_ts(e.get('timestamp'))
+        if since_ts and ts and ts <= since_ts:
+            continue
+
+        msg = e.get('message', {}) or {}
+        role = msg.get('role', '')
+        content = msg.get('content', '')
+
+        text = ''
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            parts = []
+            for c in content:
+                if isinstance(c, dict) and c.get('type') == 'text':
+                    parts.append(c.get('text', ''))
+            text = '\n'.join(parts)
+
+        if not text:
+            continue
+
+        if text.startswith('<system') or text.startswith('Tool ran'):
+            continue
+
+        if role == 'user':
+            if '<system-reminder>' in text:
+                import re
+                text = re.sub(r'<system-reminder>.*?</system-reminder>', '', text, flags=re.DOTALL).strip()
+            if not text or len(text) < 5:
+                continue
+            items.append(f"[user] {text[:600]}")
+        elif role == 'assistant':
+            if len(text.strip()) < 30:
+                continue
+            items.append(f"[claude] {text[:1500]}")
+
+items = items[-40:]
+print('\n\n'.join(items))
+PYEOF
+
+SLICE_SIZE=$(wc -c <"$SLICE" | tr -d ' ')
+echo "  slice size: ${SLICE_SIZE} bytes"
+
+if [ "$SLICE_SIZE" -lt 200 ]; then
+  echo "  too little new content, skip"
+  rm "$SLICE"
+  echo "$NOW" > "$STATE_FILE"
+  exit 0
+fi
+
+# ─── 4. 调 claude 抽精华 ────────────────────────────────
+DATE=$(date +%F)
+TIME=$(date +%H:%M)
+DRAFT="$DRAFT_DIR/$DATE-$SESSION_ID.md"
+
+PROMPT='下面是 Claude Code 一段约 30 分钟的对话片段。提取这 30 分钟的"工作精华"，只输出 2-4 行 markdown bullet，不要多余话。
+
+格式严格（第一行 **必须** 用 **'"$TIME"'**，不要改成别的时间）：
+
+**'"$TIME"'** [主题, 10字内]
+- 在做什么 / 试过什么
+- 关键决策、选择或放弃（如果有）
+- 踩到的坑（如果有）
+
+要求：
+- 严格 markdown bullet，不要长 prose
+- 只抓"有思考含量"的部分，琐碎查看/读文件不要写
+- 这是给晚间整合用的草稿，不是最终日记
+- 真没料就只写 1 行 "**'"$TIME"'** 无显著进展" 也行
+- **绝对不要修改时间戳，必须用 '"$TIME"'**
+
+下面是对话：
+
+'"$(cat "$SLICE")"
+
+SUMMARY=$(DEVLOG_TICK_NESTED=1 echo "$PROMPT" | DEVLOG_TICK_NESTED=1 "$CLAUDE" -p --output-format=text 2>>"$LOG")
+RC=$?
+rm "$SLICE"
+
+if [ "$RC" -ne 0 ] || [ -z "$SUMMARY" ]; then
+  echo "  claude failed (rc=$RC), skipping write"
+  exit 0
+fi
+
+{
+  echo ""
+  echo "$SUMMARY"
+} >> "$DRAFT"
+
+echo "$NOW" > "$STATE_FILE"
+echo "  ✓ appended ~$(echo "$SUMMARY" | wc -c | tr -d ' ') bytes to $DRAFT"
+exit 0

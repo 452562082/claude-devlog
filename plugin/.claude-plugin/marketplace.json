@@ -1,0 +1,19 @@
+{
+  "name": "claude-devlog",
+  "metadata": {
+    "description": "Claude Code 会话精华捕获插件：每 30 分钟蒸馏 transcript 成 draft，配合 bin/ 下脚本生成代码日记"
+  },
+  "owner": {
+    "name": "claude-devlog"
+  },
+  "plugins": [
+    {
+      "name": "devlog",
+      "source": "./",
+      "description": "Capture Claude session insights into daily devlog drafts (~30 min ticks)",
+      "version": "0.1.0",
+      "keywords": ["devlog", "diary", "session-capture"],
+      "category": "productivity"
+    }
+  ]
+}
