@@ -29,10 +29,18 @@ EOD_HOUR="${DEVLOG_EOD_HOUR:-21}"
 mkdir -p "$OUT_DIR" "$STATE_DIR"
 exec >>"$LOG" 2>&1
 
-# ─── 防并发：mkdir 是原子的，已有则另一实例正在跑 ───────
+# ─── 防并发：mkdir 原子锁 ────────────────────────────────────
+# 锁存在但 mtime >60min = 上个实例崩溃残留（正常 run 几分钟内结束）。
+# 不清的话泄漏的锁会让系统永久静默罢工，所以过期就清掉、本次退出，
+# 下次触发自然能拿到锁。
 LOCK="$STATE_DIR/.daily.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
-  echo "===== $(date -Iseconds) skip (another instance holds $LOCK) ====="
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then
+    echo "===== $(date -Iseconds) clearing stale lock (>60min old) ====="
+    rmdir "$LOCK" 2>/dev/null || true
+  else
+    echo "===== $(date -Iseconds) skip (another instance holds $LOCK) ====="
+  fi
   exit 0
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
