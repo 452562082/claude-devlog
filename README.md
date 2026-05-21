@@ -17,40 +17,36 @@
                     │
        ┌────────────┴────────────┐
        ▼                         ▼
-  PostToolUse                 WakaTime
-  / Stop hook                 IDE plugin
+  PostToolUse / Stop          WakaTime
+  / SessionEnd hook           IDE plugin
        │                         │
        ▼                         ▼
-  plugin/scripts/            wakatime.com
-  tick (30min 节流,           (你的账户)
-   防递归)                       │
+  plugin/scripts/tick         wakatime.com
+  ├─ 30min 节流抓 session       (你的账户)
+  │   片段 → _drafts/             │
+  └─ 退出时触发 ↓                 │
        │                         │
        ▼                         │
-  ~/.devlog/_drafts/             │
-   YYYY-MM-DD-<session>.md       │
-       │                         │
-       └────────────┬────────────┘
-                    ▼  (21:00 launchd / 合盖 sleepwatcher)
-            bin/devlog-daily.sh
-            ├─ 读 _drafts/*
-            ├─ 拉 WakaTime summaries API
-            ├─ 喂 claude -p（只写正文，frontmatter+数据卡片由脚本拼）
-            └─ 写 <vault>/YYYY-MM-DD.md
-                    │
-                    ▼  (顺带触发)
-            bin/devlog-consolidate.sh
-            └─ ≥14 天的老日记 → <vault>/_长期记忆.md
+  bin/devlog-daily.sh ◀──────────┘
+  ├─ 读 ~/.devlog/_drafts/*
+  ├─ 拉 WakaTime summaries API
+  ├─ 喂 claude -p（只写正文，frontmatter+数据卡片由脚本拼）
+  └─ 写 <vault>/YYYY-MM-DD.md
+       │
+       ▼  (顺带触发)
+  bin/devlog-consolidate.sh
+  └─ ≥14 天的老日记 → <vault>/_长期记忆.md
 ```
+
+> 触发完全靠 Claude Code 插件 hook——hook 进程跑在你的会话里，继承终端的磁盘访问权限，能写 Obsidian vault 而不弹 macOS 权限框。不依赖 launchd / sleepwatcher。
 
 ## 组件清单
 
 | 文件 | 角色 |
 |------|------|
-| `plugin/` | Claude Code 插件（PostToolUse / Stop / SessionEnd hooks） |
+| `plugin/` | Claude Code 插件：hooks 抓 session 片段 + 触发日终合成 |
 | `bin/devlog-daily.sh` | 每日合成主脚本 |
 | `bin/devlog-consolidate.sh` | 长期记忆蒸馏脚本 |
-| `bin/sleep-trigger.sh` | sleepwatcher 钩子（合盖触发） |
-| `launchd/com.user.devlog.plist` | 22:00 定时调度（macOS launchd） |
 | `config.example.sh` | 配置模板，install 时复制到 `~/.devlog/config.sh` |
 | `install.sh` | 幂等安装器 |
 
@@ -119,11 +115,10 @@ SORT date DESC
 
 ### 前置依赖
 
-- macOS（launchd + sleepwatcher 是 macOS-specific；Linux 需要自己改 systemd timer）
 - [Claude Code](https://claude.com/claude-code)
+- `python3`、`bash`、`curl`（macOS 自带）
 - Obsidian（或任何能读 Markdown 的工具）
 - 一个 Obsidian vault（建议放 Google Drive/iCloud/Syncthing 自动同步）
-- `sleepwatcher`（可选，合盖触发用）：`brew install sleepwatcher`
 - WakaTime 账户（可选，要时长数据的话）
 
 ### 安装步骤
@@ -137,10 +132,7 @@ cd ~/go/src/claude-devlog
 `install.sh` 会：
 1. 复制 `config.example.sh` 到 `~/.devlog/config.sh`（首次安装）
 2. 软链 `bin/*.sh` 到 `~/bin/`
-3. 软链 `bin/sleep-trigger.sh` 到 `~/.sleep`
-4. 渲染 plist 到 `~/Library/LaunchAgents/com.user.devlog.plist` 并 load
-5. 检测 sleepwatcher 状态并提示
-6. 注册 Claude Code plugin（marketplace + install）
+3. 注册并安装 Claude Code plugin（marketplace add + install）
 
 ### 配置
 
@@ -166,30 +158,24 @@ DEVLOG_CLAUDE_BIN="$HOME/.local/bin/claude"
 
 脚本会自动从 `~/.wakatime.cfg` 读 key 调 summaries API。
 
-### sleepwatcher（推荐）
-
-```bash
-brew install sleepwatcher
-brew services start sleepwatcher
-```
-
-合盖时（hour ≥ `DEVLOG_SLEEP_TRIGGER_HOUR`，默认 17）自动触发当天日记生成。
-
 ---
 
 ## 触发时机
 
+触发完全靠 Claude Code 插件 hook，不需要任何系统级定时器：
+
 | 触发源 | 行为 |
 |--------|------|
-| **sleepwatcher 合盖** | hour ≥ 17 → 强制生成今天的日记（最准） |
-| **launchd 22:00** | 准点跑；通常被合盖错过，但醒来时 launchd 会自动补跑 |
-| **第二天开盖** | launchd catch-up 补齐过去 14 天里"缺失但有数据"的日子 |
+| **每 ~30min（工作中）** | tick 抓一次 session 片段；顺带跑一次 `devlog-daily.sh` |
+| **会话结束（SessionEnd）** | tick 收尾抓一次 + 跑 `devlog-daily.sh` |
 | **手动** | `DEVLOG_FORCE_TODAY=1 ~/bin/devlog-daily.sh` |
+
+`devlog-daily.sh` 幂等：今天的日记过 `DEVLOG_EOD_HOUR`（默认 21:00）才生成；过去 14 天里"缺失但有数据"的日子会在下次跑时自动补齐。所以哪怕几天没开 Claude Code，再开时也会一次性补全。
 
 ## 常用命令
 
 ```bash
-# 立刻跑一次日报（不必等到合盖）
+# 立刻跑一次日报
 DEVLOG_FORCE_TODAY=1 ~/bin/devlog-daily.sh
 
 # 立刻跑一次蒸馏
@@ -199,15 +185,10 @@ DEVLOG_FORCE_TODAY=1 ~/bin/devlog-daily.sh
 tail -f ~/.devlog/_run.log
 tail -f ~/.devlog/_tick.log
 
-# 看 launchd 任务状态
-launchctl list | grep com.user.devlog
-
-# 暂停整套系统
-launchctl unload ~/Library/LaunchAgents/com.user.devlog.plist
-brew services stop sleepwatcher
-
-# 卸载 Claude plugin
+# 暂停整套系统（卸载 plugin，hook 不再触发）
 claude plugin uninstall devlog@claude-devlog
+
+# 彻底移除
 claude plugin marketplace remove claude-devlog
 ```
 
@@ -215,7 +196,11 @@ claude plugin marketplace remove claude-devlog
 
 ### 多个 Claude session 同时跑会冲突吗？
 
-每个 session 各自 tick 独立 state file，draft 文件名带 session_id 不冲突。`devlog-daily.sh` 加了 mkdir-lock 防并发。
+每个 session 各自 tick 独立 state file，draft 文件名带 session_id 不冲突。多个 session 的 tick 可能同时触发 `devlog-daily.sh`，靠 mkdir-lock 防并发——抢到锁的跑，其余直接跳过。
+
+### 为什么不用 launchd / cron 定时？
+
+vault 通常放在 `~/Library/CloudStorage/`（Google Drive 等），这是 macOS TCC 保护目录。launchd / cron 起的进程没有"有磁盘访问权限的祖先"，写 vault 会弹授权框、且每次都弹。而插件 hook 跑在 Claude Code 会话里，进程继承终端的磁盘访问权限，写 vault 不弹框。代价是日记只在你用 Claude Code 时生成——但这工具记的就是 Claude Code 的活，不用它时本就无可记。
 
 ### 数据隐私？
 
@@ -230,8 +215,7 @@ claude plugin marketplace remove claude-devlog
 
 ### Linux/Windows 怎么办？
 
-- Linux：把 `launchd plist` 换成 systemd timer，`sleepwatcher` 换成 `systemd-suspend.target` 钩子或 [acpi-events](https://wiki.archlinux.org/title/Acpid)
-- Windows：scheduled task + `psm` 监听 lid event；scripts 本身基于 bash + python3，wsl/git bash 应该能跑
+触发靠 Claude Code 插件 hook，不依赖任何 macOS 特性，理论上跨平台。脚本本身基于 `bash` + `python3` + `curl`：Linux 直接能跑，Windows 用 WSL / Git Bash 应该也行。`install.sh` 里的软链和 plugin 注册步骤跨平台通用。
 
 ---
 

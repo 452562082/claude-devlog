@@ -2,44 +2,39 @@
 
 ## 进程模型
 
-```
-启动顺序：
-  1. macOS login → launchd 自启
-     ├─ Claude Code（你需要时启动；plugin 随之启用）
-     ├─ sleepwatcher daemon（监听 IOKit 睡眠事件）
-     └─ com.user.devlog launchd agent（22:00 待命）
+devlog 没有常驻进程，也不用任何系统级定时器。一切由 Claude Code 插件 hook 驱动：
 
-运行时事件：
-  你和 Claude 写代码
-        │
-        ├─ 每次工具调用 → Claude Code 触发 PostToolUse hook
-        │      ↓
-        │   plugin/scripts/tick 异步起进程
-        │      ↓
-        │   检查节流 (last_tick > TICK_INTERVAL)
-        │      ↓
-        │   读 transcript jsonl，python 提取 user+assistant text
-        │      ↓
-        │   claude -p (DEVLOG_TICK_NESTED=1 防递归)
-        │      ↓
-        │   append ~/.devlog/_drafts/YYYY-MM-DD-<session>.md
-        │
-        ├─ Mac 进入睡眠 → sleepwatcher 触发 ~/.sleep
-        │      ↓
-        │   hour ≥ DEVLOG_SLEEP_TRIGGER_HOUR ?
-        │      ├─ 是：DEVLOG_FORCE_TODAY=1 bin/devlog-daily.sh &  disown
-        │      └─ 否：silently skip
-        │
-        └─ 22:00 → launchd 触发 (这一刻通常合盖中)
-               ↓
-            Mac 醒来时 launchd catch-up 补跑
-               ↓
-            bin/devlog-daily.sh (mkdir lock)
-            ├─ 扫过去 LOOKBACK_DAYS 天找"无日报"的日子
-            ├─ for each: 读 drafts + 拉 WakaTime → claude -p → 写 vault
-            ├─ 清 drafts
-            └─ bin/devlog-consolidate.sh (≥KEEP_DAYS 的进长期记忆)
 ```
+你和 Claude 写代码
+      │
+      ├─ 每次工具调用 → Claude Code 触发 PostToolUse / Stop hook
+      │  会话结束 → SessionEnd hook
+      │      ↓
+      │   plugin/scripts/tick 异步起进程
+      │      ↓
+      │   检查节流 (last_tick > TICK_INTERVAL)；未到 → 退出
+      │   （SessionEnd 豁免节流，必跑一次收尾）
+      │      ↓
+      │   武装 EXIT trap：tick 退出时跑 bin/devlog-daily.sh
+      │      ↓
+      │   读 transcript jsonl，python 提取 user+assistant text
+      │      ↓
+      │   claude -p (DEVLOG_TICK_NESTED=1 防递归)
+      │      ↓
+      │   append ~/.devlog/_drafts/YYYY-MM-DD-<session>.md
+      │      ↓
+      │   tick 退出 → EXIT trap 触发 ↓
+      │
+      └─ bin/devlog-daily.sh (mkdir lock 防并发)
+         ├─ 扫过去 LOOKBACK_DAYS 天找"无日报"的日子
+         ├─ for each: 读 drafts + 拉 WakaTime → claude -p → 写 vault
+         ├─ 归档 drafts 到 _drafts_archive/
+         └─ bin/devlog-consolidate.sh (≥KEEP_DAYS 的进长期记忆)
+```
+
+`devlog-daily.sh` 幂等：没有缺失日期时几毫秒退出，所以每次 tick 退出都触发它也不费成本。今天的日记过 `DEVLOG_EOD_HOUR` 才生成；过去缺失的日子下次跑时自动补齐。
+
+**为什么不用 launchd / cron**：vault 通常在 `~/Library/CloudStorage/`（macOS TCC 保护目录）。launchd / cron 起的进程没有"有磁盘访问权限的祖先"，写 vault 会反复弹授权框。tick 由 Claude Code 触发，进程继承终端的磁盘访问权限，写 vault 不弹框。
 
 ## 文件系统布局
 
@@ -48,13 +43,13 @@
 ├── config.sh                         ← 用户配置（install.sh 从 config.example.sh 复制）
 ├── _drafts/                          ← 当日 tick 产物，每个 session 一个
 │   └── 2026-05-19-<uuid>.md
+├── _drafts_archive/                  ← 合成后归档的 drafts（按月，保留 N 天）
+│   └── 2026-05/
 ├── _state/                           ← 每个 session 的 last-tick 时间戳
 │   └── <uuid>
 ├── _run.log                          ← devlog-daily.sh 日志
 ├── _tick.log                         ← plugin/scripts/tick 日志
 ├── _consolidate.log                  ← devlog-consolidate.sh 日志
-├── _sleep.log                        ← sleep-trigger.sh 日志
-├── _launchd.out / _launchd.err       ← launchd 层日志
 └── .daily.lock/                      ← mkdir-lock 防并发
 
 <DEVLOG_VAULT_DIR>/                   ← Obsidian vault 内的目录
@@ -103,16 +98,15 @@ tick → claude -p (新 session) → 新 session 调工具 → 触发 PostToolUs
 - tick 用更便宜的模型（wrapper script 加 `--model claude-haiku`）
 - 不要 WakaTime（删 `~/.wakatime.cfg` 即可），节省 API 调用
 
-## macOS-specific 依赖
+## 跨平台
+
+触发靠 Claude Code 插件 hook，不依赖 launchd / sleepwatcher 等 macOS 特性。唯一的平台相关点：
 
 | 用了什么 | 替代方案（其他平台） |
 |---------|---------------------|
-| `launchctl` | Linux: systemd; Windows: schtasks |
-| `sleepwatcher` | Linux: systemd-sleep hooks; Windows: powercfg 事件 |
-| `~/Library/LaunchAgents` | 平台无关位置即可 |
 | `date -v-Nd` (BSD) | Linux GNU date: `date -d "-N days"` |
 
-scripts 没用其他 macOS-only 特性。改 `date -v` 调用就能跨平台。
+改掉 `date -v` 调用即可在 Linux / WSL 上跑。
 
 ## 安全考量
 

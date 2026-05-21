@@ -66,6 +66,13 @@ fi
 
 echo "===== $(date -Iseconds) tick session=$SESSION_ID event=$HOOK_EVENT elapsed=${ELAPSED}s ====="
 
+# ─── 退出时触发日终合成 ─────────────────────────────────────
+# tick 由 Claude Code 钩子触发，进程继承终端（如 iTerm）的磁盘访问权限，
+# daily.sh 因此能写 CloudStorage 里的 vault 而不弹 TCC 授权框——这是取代
+# launchd/sleepwatcher 裸触发的方式。daily.sh 幂等，无缺失日期时几毫秒退出。
+# nested 守护在 trap 武装之前已 short-circuit，不会递归。
+trap '[ -x "$HOME/bin/devlog-daily.sh" ] && "$HOME/bin/devlog-daily.sh" >/dev/null 2>&1' EXIT
+
 # ─── 3. 解析 transcript：取上次 tick 后的 user prompt + assistant text ──────
 SLICE=$(mktemp)
 python3 - "$TRANSCRIPT_PATH" "$LAST" > "$SLICE" <<'PYEOF'

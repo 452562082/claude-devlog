@@ -4,7 +4,7 @@
 #   1. Claude session drafts（plugin/scripts/tick 每 30 分钟蒸馏一次）
 #   2. WakaTime summaries API
 # 输出：$DEVLOG_VAULT_DIR/YYYY-MM-DD.md
-# 触发：launchd (定时) / sleepwatcher (合盖)
+# 触发：plugin/scripts/tick 退出时的 EXIT trap（也可手动跑）
 
 set -u
 
@@ -48,7 +48,7 @@ TARGETS=()
 for offset in $(seq "$LOOKBACK_DAYS" -1 0); do
   D=$(date -v-"${offset}"d +%F)
 
-  # 强制重写今天的报告（sleepwatcher 等触发 = "今天结束了"，无视小时）
+  # 强制重写今天的报告（DEVLOG_FORCE_TODAY=1，无视 EOD 小时）
   if [ "$D" = "$TODAY" ] && [ -n "${DEVLOG_FORCE_TODAY:-}" ]; then
     echo "  force regenerate $D (DEVLOG_FORCE_TODAY set)"
     rm -f "$OUT_DIR/$D.md"

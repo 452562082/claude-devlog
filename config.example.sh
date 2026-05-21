@@ -16,14 +16,11 @@ DEVLOG_CLAUDE_BIN="$(which claude 2>/dev/null || echo $HOME/.local/bin/claude)"
 # 短期保留天数（超过会被蒸馏进 _长期记忆.md）
 DEVLOG_KEEP_DAYS=14
 
-# 回扫窗口（合盖/开盖时检查多少天的"缺失日报"）
+# 回扫窗口（每次跑检查多少天的"缺失日报"）
 DEVLOG_LOOKBACK_DAYS=14
 
 # 一天的结束时刻（小时，24h 制）；之前算"在进行中"，之后才会写当天的日报
 DEVLOG_EOD_HOUR=21
-
-# 合盖事件触发日报的最早时刻（小时）；早于这个会被认为是午休/小憩不算下班
-DEVLOG_SLEEP_TRIGGER_HOUR=17
 
 # Claude session 抓取频率（秒）
 DEVLOG_TICK_INTERVAL=1800

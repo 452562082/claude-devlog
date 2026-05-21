@@ -40,59 +40,28 @@ for script in devlog-daily.sh devlog-consolidate.sh; do
   fi
 done
 
-# ─── 3. sleep-trigger.sh → ~/.sleep ────────────────────────
-SLEEP_TARGET="$REPO_DIR/bin/sleep-trigger.sh"
-if [ -L "$HOME/.sleep" ] && [ "$(readlink "$HOME/.sleep")" = "$SLEEP_TARGET" ]; then
-  echo "✓ ~/.sleep → already linked"
-else
-  [ -e "$HOME/.sleep" ] && mv "$HOME/.sleep" "$HOME/.sleep.bak.$(date +%s)"
-  ln -s "$SLEEP_TARGET" "$HOME/.sleep"
-  echo "✓ linked ~/.sleep → $SLEEP_TARGET"
-fi
-
-# ─── 4. launchd plist 渲染并安装 ────────────────────────────
-PLIST_SRC="$REPO_DIR/launchd/com.user.devlog.plist"
-PLIST_DST="$HOME/Library/LaunchAgents/com.user.devlog.plist"
-mkdir -p "$(dirname "$PLIST_DST")"
-
-# 模板里的 __HOME__ 替换成真实 $HOME
-sed "s|__HOME__|$HOME|g" "$PLIST_SRC" > "$PLIST_DST"
-echo "✓ rendered + installed $PLIST_DST"
-
-launchctl unload "$PLIST_DST" 2>/dev/null || true
-launchctl load -w "$PLIST_DST"
-echo "✓ launchd reloaded"
-
-# ─── 5. sleepwatcher（合盖触发） ───────────────────────────
-if ! command -v sleepwatcher >/dev/null 2>&1; then
-  echo "ℹ sleepwatcher 未装；如要合盖即触发日报，跑：brew install sleepwatcher && brew services start sleepwatcher"
-else
-  if ! brew services list 2>/dev/null | grep -q "^sleepwatcher.*started"; then
-    echo "ℹ sleepwatcher 已装但未启动：brew services start sleepwatcher"
-  else
-    echo "✓ sleepwatcher running"
-  fi
-fi
-
-# ─── 6. 注册 Claude Code plugin ────────────────────────────
+# ─── 3. 注册 Claude Code plugin ────────────────────────────
+# 插件的 hooks 既负责 30 分钟抓 session 片段，也负责会话结束时触发
+# 日终合成（devlog-daily.sh）。因为 hook 跑在 Claude Code 会话里，
+# 进程继承终端的磁盘访问权限，能写 Obsidian vault 而不弹 macOS TCC
+# 授权框——所以触发完全靠插件，不再需要 launchd / sleepwatcher。
 if command -v claude >/dev/null 2>&1; then
   if ! claude plugin marketplace list 2>/dev/null | grep -q "claude-devlog"; then
     claude plugin marketplace add "$REPO_DIR/plugin" 2>&1 | tail -1 || true
   else
     claude plugin marketplace update claude-devlog 2>&1 | tail -1 || true
   fi
-  if ! claude plugin list 2>/dev/null | grep -q "devlog@claude-devlog"; then
-    claude plugin install devlog@claude-devlog 2>&1 | tail -1 || true
-  else
-    echo "✓ devlog@claude-devlog already installed"
-  fi
+  # 重装以确保 plugin cache 同步 repo 最新脚本（install 是拷贝不是软链）
+  claude plugin uninstall devlog@claude-devlog >/dev/null 2>&1 || true
+  claude plugin install devlog@claude-devlog 2>&1 | tail -1 || true
+  echo "✓ devlog@claude-devlog 已安装/更新"
 else
   echo "ℹ claude CLI 不在 PATH，跳过 plugin 注册；以后手动："
   echo "    claude plugin marketplace add $REPO_DIR/plugin"
   echo "    claude plugin install devlog@claude-devlog"
 fi
 
-# ─── 7. 收尾提示 ───────────────────────────────────────────
+# ─── 4. 收尾提示 ───────────────────────────────────────────
 echo ""
 echo "─────────────────────────────────────────────"
 echo "✓ 安装完毕"
@@ -106,4 +75,4 @@ echo "  立即跑一次日报：  DEVLOG_FORCE_TODAY=1 ~/bin/devlog-daily.sh"
 echo "  立即跑一次蒸馏：  ~/bin/devlog-consolidate.sh"
 echo "  看运行日志：      tail -f ~/.devlog/_run.log"
 echo "  看 tick 日志：    tail -f ~/.devlog/_tick.log"
-echo "  停 launchd：      launchctl unload ~/Library/LaunchAgents/com.user.devlog.plist"
+echo "  暂停整套系统：    claude plugin uninstall devlog@claude-devlog"
