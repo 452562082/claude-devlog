@@ -2,7 +2,7 @@
 
 > 让 Claude Code 把每天的"工作过程知识"自动写成开发日记，并随时间蒸馏成长期记忆。
 
-用 **Claude Code plugin hooks** 持续抓 session 上下文（你在想什么、纠结什么、放弃什么）+ **WakaTime API** 拿量化数据（时长、项目分布、AI 用量），每晚合成一份结构化、可扫读、可 Dataview 查询的 Markdown 日记，存进 Obsidian vault。
+用 **Claude Code plugin hooks** 持续抓 session 上下文（你在想什么、纠结什么、放弃什么）+ **WakaTime API** 拿量化数据（时长、项目分布、AI 用量），每天合成一份结构化、可扫读、可 Dataview 查询的 Markdown 日记，存进 Obsidian vault。
 
 > 单用户的个人工具，不是 SaaS。设计目标是放进 `~/.devlog/` 跑着，不打扰，遗忘式记忆。
 
@@ -64,12 +64,12 @@
 
 每份日记长这样：
 
-```yaml
+```markdown
 ---
 date: 2026-05-19
-total_minutes: 184                   # WakaTime 算出
-projects: [ai_demo, devlog-plugin]   # 当日涉及的项目
-languages: [Bash, Markdown, Go]
+total_minutes: 184
+projects: ["ai_demo", "devlog-plugin"]
+languages: ["Bash", "Markdown", "Go"]
 type: devlog
 ---
 
@@ -78,27 +78,32 @@ type: devlog
 > [!tldr] 一句话总结
 > self-test 卡 120s 一路挖到三层根因，顺手给 install 链补 timeout 护栏。
 
-## 主题 1：精炼的问题名
+### self-test 卡 120s 挖到第三层根因
 
-**问题/动机**：今天为什么搞这个。
-**过程**：试了什么、想了什么、踩了什么。
-**结论/选择**：最终选什么、放弃什么、留什么 follow-up。
+**问题/动机**：1 句话，今天为什么搞这个。
+**过程**：1-2 句话，试了什么、想了什么、踩了什么。
+**结论/选择**：1-2 句话，最终选什么、放弃什么、留什么 follow-up。
 
 > [!note]- 细节
 > - 涉及的文件、决策点
 
 ---
 
-## 主题 2：...
-
-> [!abstract] 数据
-> - **时长**：3 小时 4 分
-> - **项目**：proj1 (58%), proj2 (8%)
-> - **AI**：50 prompts, 988M input tokens, $0.41
+### <下一个主题>...
 
 > [!tip] 值得记住的
 > - 跨场景的非显然教训
+
+---
+
+> [!abstract] 数据
+> - **时长**：3 小时 4 分
+> - **项目**：ai_demo (58%)、devlog-plugin (8%)
+> - **语言**：Bash, Markdown, Go
+> - **AI**：50 次 prompt、988 万 input / 6 万 output tokens、$0.41
 ```
+
+frontmatter / 标题 / 数据卡片由脚本侧直接拼（量化数字全来自 WakaTime，模型碰不到）；`> [!tldr]` 到 `> [!tip]` 之间的正文才是 `claude -p` 写的。
 
 `type: devlog` + frontmatter 让 Obsidian Dataview 插件能直接查询：
 
