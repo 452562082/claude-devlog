@@ -33,11 +33,19 @@ if [ -z "$CLAUDE" ] || [ ! -x "$CLAUDE" ]; then
   exit 0
 fi
 
-# ─── 1. 从 hook stdin 读 session 元信息 ────────────────────
-HOOK_INPUT=$(cat)
-SESSION_ID=$(echo "$HOOK_INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null)
-TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('transcript_path',''))" 2>/dev/null)
-HOOK_EVENT=$(echo "$HOOK_INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('hook_event_name',''))" 2>/dev/null)
+# ─── 1. 从 hook stdin 读 session 元信息（一次 python 解析三个字段）──
+HOOK_FIELDS=$(python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+for k in ('session_id', 'transcript_path', 'hook_event_name'):
+    print(str(d.get(k) or '').replace('\n', ' '))
+" 2>/dev/null)
+{ IFS= read -r SESSION_ID; IFS= read -r TRANSCRIPT_PATH; IFS= read -r HOOK_EVENT; } <<EOF
+$HOOK_FIELDS
+EOF
 
 if [ -z "$SESSION_ID" ] || [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   exit 0

@@ -26,7 +26,7 @@ LOG="$STATE_DIR/_run.log"
 LOOKBACK_DAYS="${DEVLOG_LOOKBACK_DAYS:-14}"
 EOD_HOUR="${DEVLOG_EOD_HOUR:-21}"
 
-mkdir -p "$OUT_DIR" "$STATE_DIR"
+mkdir -p "$OUT_DIR" "$STATE_DIR" "$STATE_DIR/_state"
 exec >>"$LOG" 2>&1
 
 # ─── 防并发：mkdir 原子锁 ────────────────────────────────────
@@ -61,6 +61,14 @@ for offset in $(seq "$LOOKBACK_DAYS" -1 0); do
     echo "  force regenerate $D (DEVLOG_FORCE_TODAY set)"
     rm -f "$OUT_DIR/$D.md"
     TARGETS+=("$D")
+    continue
+  fi
+
+  # 已知无活动的过去日期：不再重复探测（WakaTime curl）
+  # 过去日期一旦判定无活动就是永久的（draft 不补、WakaTime 历史不变）；
+  # 若之后手动补了 draft，下面的 glob 会发现 → 不跳过、重新处理
+  if [ "$D" != "$TODAY" ] && [ -f "$STATE_DIR/_state/.empty-$D" ] \
+     && [ -z "$(ls "$STATE_DIR/_drafts/${D}-"*.md 2>/dev/null)" ]; then
     continue
   fi
 
@@ -177,6 +185,8 @@ PY
 
   if [ "$active" -eq 0 ]; then
     echo "    no activity on $D (no drafts, no WakaTime time), skip writing"
+    # 过去日期标记为空，下次不再探测；今天不标记（之后可能有活动）
+    [ "$D" != "$TODAY" ] && touch "$STATE_DIR/_state/.empty-$D"
     rm -f "$TMP_FM" "$TMP_DC"
     return
   fi
