@@ -25,8 +25,8 @@ DEVLOG_EOD_HOUR=21
 # Claude session 抓取频率（秒）
 DEVLOG_TICK_INTERVAL=1800
 
-# 合成成功后 drafts 归档保留天数；保留窗口内删了日记重跑会基于归档复现
-DEVLOG_DRAFT_ARCHIVE_DAYS=30
+# drafts 保留天数；窗口内删了日记重跑会基于留存的 draft 复现
+DEVLOG_DRAFT_KEEP_DAYS=30
 
 # ─── 数据/状态目录（一般不用改）────────────────────────────────
 DEVLOG_STATE_DIR="$HOME/.devlog"

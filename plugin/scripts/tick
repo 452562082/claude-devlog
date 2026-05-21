@@ -174,7 +174,7 @@ PROMPT='下面是 Claude Code 一段约 30 分钟的对话片段。提取这 30 
 
 '"$(cat "$SLICE")"
 
-SUMMARY=$(DEVLOG_TICK_NESTED=1 echo "$PROMPT" | DEVLOG_TICK_NESTED=1 "$CLAUDE" -p --output-format=text 2>>"$LOG")
+SUMMARY=$(echo "$PROMPT" | DEVLOG_TICK_NESTED=1 "$CLAUDE" -p --output-format=text 2>>"$LOG")
 RC=$?
 rm "$SLICE"
 

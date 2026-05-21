@@ -56,8 +56,16 @@ for offset in $(seq "$LOOKBACK_DAYS" -1 0); do
     continue
   fi
 
-  # 已存在就跳过
-  if [ -f "$OUT_DIR/$D.md" ]; then continue; fi
+  # 已存在：除非有比日记更新的 draft（那天后来又写了东西），否则跳过
+  if [ -f "$OUT_DIR/$D.md" ]; then
+    newest_draft=$(ls -t "$STATE_DIR/_drafts/${D}-"*.md 2>/dev/null | head -1)
+    if [ -n "$newest_draft" ] && [ "$newest_draft" -nt "$OUT_DIR/$D.md" ]; then
+      echo "  regenerate $D (draft 比日记新)"
+      rm -f "$OUT_DIR/$D.md"
+      TARGETS+=("$D")
+    fi
+    continue
+  fi
 
   # 今天但还不到 EOD：日子还没结束，跳过
   if [ "$D" = "$TODAY" ] && [ "$NOW_HOUR" -lt "$EOD_HOUR" ]; then
@@ -83,12 +91,9 @@ generate_for_date() {
 
   echo "  -> generating $D"
 
-  # ─── 数据源 1: Claude session drafts（先看 active，再 fallback 到归档）─
-  local SESSION_DRAFTS=""
+  # ─── 数据源 1: Claude session drafts ─────────────────────
+  local SESSION_DRAFTS
   SESSION_DRAFTS=$(cat "$STATE_DIR/_drafts/${D}-"*.md 2>/dev/null || true)
-  if [ -z "$SESSION_DRAFTS" ]; then
-    SESSION_DRAFTS=$(cat "$STATE_DIR/_drafts_archive/${D%-*}/${D}-"*.md 2>/dev/null || true)
-  fi
 
   # ─── 数据源 2: WakaTime ──────────────────────────────────
   # 注意：用 `-K -` 从 stdin 读 user，避免 key 进 curl 的 argv 被 ps 看到
@@ -240,11 +245,7 @@ PY
       echo ""
       cat "$TMP_DC"
     } > "$OUT"
-
-    # 归档 drafts
-    local ARCHIVE="$STATE_DIR/_drafts_archive/${D%-*}"
-    mkdir -p "$ARCHIVE"
-    mv "$STATE_DIR/_drafts/${D}-"*.md "$ARCHIVE/" 2>/dev/null || true
+    # drafts 不动：留在 _drafts/ 供后续重生成，到期由末尾的清理统一删
   else
     echo "    claude failed (rc=$rc) for $D, writing fallback"
     {
@@ -273,12 +274,10 @@ done
 
 echo "===== $(date -Iseconds) done (${#TARGETS[@]} reports) ====="
 
-# ─── 归档清理：超过 DEVLOG_DRAFT_ARCHIVE_DAYS 的 drafts archive 删掉 ──
-ARCHIVE_DAYS="${DEVLOG_DRAFT_ARCHIVE_DAYS:-30}"
-if [ -d "$STATE_DIR/_drafts_archive" ]; then
-  find "$STATE_DIR/_drafts_archive" -type f -name "*.md" -mtime "+$ARCHIVE_DAYS" -delete 2>/dev/null || true
-  find "$STATE_DIR/_drafts_archive" -type d -empty -delete 2>/dev/null || true
-fi
+# ─── 清理过期状态（drafts + tick state，超过 DEVLOG_DRAFT_KEEP_DAYS 天没动过）─
+DRAFT_KEEP_DAYS="${DEVLOG_DRAFT_KEEP_DAYS:-30}"
+find "$STATE_DIR/_drafts" -type f -name "*.md" -mtime "+$DRAFT_KEEP_DAYS" -delete 2>/dev/null || true
+find "$STATE_DIR/_state" -type f -mtime "+$DRAFT_KEEP_DAYS" -delete 2>/dev/null || true
 
 # 顺带跑蒸馏（≥KEEP_DAYS 的老日记进 _长期记忆.md）
 if [ -x "$(dirname "$0")/devlog-consolidate.sh" ]; then

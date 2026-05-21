@@ -28,7 +28,7 @@ devlog 没有常驻进程，也不用任何系统级定时器。一切由 Claude
       └─ bin/devlog-daily.sh (mkdir lock 防并发)
          ├─ 扫过去 LOOKBACK_DAYS 天找"无日报"的日子
          ├─ for each: 读 drafts + 拉 WakaTime → claude -p → 写 vault
-         ├─ 归档 drafts 到 _drafts_archive/
+         ├─ drafts 留在 _drafts/（到期按 DEVLOG_DRAFT_KEEP_DAYS 清理）
          └─ bin/devlog-consolidate.sh (≥KEEP_DAYS 的进长期记忆)
 ```
 
@@ -41,10 +41,8 @@ devlog 没有常驻进程，也不用任何系统级定时器。一切由 Claude
 ```
 ~/.devlog/                            ← 系统状态目录（不进 vault）
 ├── config.sh                         ← 用户配置（install.sh 从 config.example.sh 复制）
-├── _drafts/                          ← 当日 tick 产物，每个 session 一个
+├── _drafts/                          ← tick 产物，每个 session 一个；保留 N 天后清理
 │   └── 2026-05-19-<uuid>.md
-├── _drafts_archive/                  ← 合成后归档的 drafts（按月，保留 N 天）
-│   └── 2026-05/
 ├── _state/                           ← 每个 session 的 last-tick 时间戳
 │   └── <uuid>
 ├── _run.log                          ← devlog-daily.sh 日志
