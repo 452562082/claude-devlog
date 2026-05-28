@@ -13,8 +13,8 @@ DEVLOG_CLAUDE_BIN="$(which claude 2>/dev/null || echo $HOME/.local/bin/claude)"
 
 # ─── 可选：覆盖默认参数 ────────────────────────────────────────
 
-# 短期保留天数（超过会被蒸馏进 _长期记忆.md）
-DEVLOG_KEEP_DAYS=14
+# 日记保留天数（超过这个天数的日记直接删除）
+DEVLOG_KEEP_DAYS=30
 
 # 回扫窗口（每次跑检查多少天的"缺失日报"）
 DEVLOG_LOOKBACK_DAYS=14

@@ -1,6 +1,6 @@
 # claude-devlog
 
-> 让 Claude Code 把每天的"工作过程知识"自动写成开发日记，并随时间蒸馏成长期记忆。
+> 让 Claude Code 把每天的"工作过程知识"自动写成开发日记。
 
 用 **Claude Code plugin hooks** 持续抓 session 上下文（你在想什么、纠结什么、放弃什么）+ **WakaTime API** 拿量化数据（时长、项目分布、AI 用量），每天合成一份结构化、可扫读、可 Dataview 查询的 Markdown 日记，存进 Obsidian vault。
 
@@ -31,11 +31,8 @@
   ├─ 读 ~/.devlog/_drafts/*
   ├─ 拉 WakaTime summaries API
   ├─ 喂 claude -p（只写正文，frontmatter+数据卡片由脚本拼）
-  └─ 写 <vault>/YYYY-MM-DD.md
-       │
-       ▼  (顺带触发)
-  bin/devlog-consolidate.sh
-  └─ ≥14 天的老日记 → <vault>/_长期记忆.md
+  ├─ 写 <vault>/YYYY-MM-DD.md
+  └─ 顺带清理：删掉 <vault> 里超过 KEEP_DAYS(默认30) 天的老日记
 ```
 
 > 触发完全靠 Claude Code 插件 hook——hook 进程跑在你的会话里，继承终端的磁盘访问权限，能写 Obsidian vault 而不弹 macOS 权限框。不依赖 launchd / sleepwatcher。
@@ -45,19 +42,17 @@
 | 文件 | 角色 |
 |------|------|
 | `plugin/` | Claude Code 插件：hooks 抓 session 片段 + 触发日终合成 |
-| `bin/devlog-daily.sh` | 每日合成主脚本 |
-| `bin/devlog-consolidate.sh` | 长期记忆蒸馏脚本 |
+| `bin/devlog-daily.sh` | 每日合成主脚本（顺带清理超期老日记） |
 | `config.example.sh` | 配置模板，install 时复制到 `~/.devlog/config.sh` |
 | `install.sh` | 幂等安装器 |
 
-## 三类输出文件
+## 输出文件
 
 ```
 <DEVLOG_VAULT_DIR>/                  ← Obsidian vault 里的目录
 ├── 2026-05-19.md                    ← 当日日记（frontmatter + TL;DR + 主题 + 数据卡片）
 ├── 2026-05-18.md
-├── ... 最近 14 天 ...
-└── _长期记忆.md                     ← 超过 14 天的明细蒸馏到这里
+└── ... 最近 KEEP_DAYS(默认30) 天 ... ← 超期的老日记会被直接删除
 ```
 
 ## 日记结构
@@ -182,9 +177,6 @@ DEVLOG_CLAUDE_BIN="$HOME/.local/bin/claude"
 ```bash
 # 立刻跑一次日报
 DEVLOG_FORCE_TODAY=1 ~/bin/devlog-daily.sh
-
-# 立刻跑一次蒸馏
-~/bin/devlog-consolidate.sh
 
 # 看运行日志
 tail -f ~/.devlog/_run.log

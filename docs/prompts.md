@@ -1,6 +1,6 @@
 # Prompt 设计说明
 
-这套系统有三处用到 LLM prompt，理念都不同，特此记录。
+这套系统有两处用到 LLM prompt，理念都不同，特此记录。
 
 ## 1. plugin/scripts/tick — 30 分钟蒸馏
 
@@ -29,23 +29,13 @@
 
 **踩坑**：早期 prompt 没明示"段落要短"，模型出长 prose；加了"每段最多 3-4 句"立刻见效。
 
-## 3. bin/devlog-consolidate.sh — 长期记忆蒸馏
-
-**目标**：把 14 天前的日记**压到 15-20% 体量**，只保留"12 个月后仍有价值"的内容。
-
-**严格筛选规则**：
-- 反复踩的坑：必须**跨多天 / 多场景**才放
-- 决策：别记 minor cleanup
-- 不放 commit hash（12 月后无意义）
-- 每条教训必须带"为什么"和"怎么避免"
-
-**目标读者**：未来的你，1 年后回顾"3 月份在搞什么"。
+> 注：老日记不再用 LLM 蒸馏成长期记忆。`devlog-daily.sh` 跑完会直接删掉超过 `DEVLOG_KEEP_DAYS`（默认 30）天的日记。
 
 ---
 
 ## 模型选择建议
 
-默认用 `claude` CLI（哪个模型由 Claude Code 配置决定）。对 tick 这种小任务，Haiku 已经够用；对日终合成和长期蒸馏，Sonnet/Opus 输出更可读。
+默认用 `claude` CLI（哪个模型由 Claude Code 配置决定）。对 tick 这种小任务，Haiku 已经够用；对日终合成，Sonnet/Opus 输出更可读。
 
 如果你想固定特定模型，改 `DEVLOG_CLAUDE_BIN` 调一个带 `--model` 参数的 wrapper script。
 

@@ -29,7 +29,7 @@ devlog 没有常驻进程，也不用任何系统级定时器。一切由 Claude
          ├─ 扫过去 LOOKBACK_DAYS 天找"无日报"的日子
          ├─ for each: 读 drafts + 拉 WakaTime → claude -p → 写 vault
          ├─ drafts 留在 _drafts/（到期按 DEVLOG_DRAFT_KEEP_DAYS 清理）
-         └─ bin/devlog-consolidate.sh (≥KEEP_DAYS 的进长期记忆)
+         └─ 删掉 vault 里超过 KEEP_DAYS 天的老日记（按文件名日期，直接删）
 ```
 
 `devlog-daily.sh` 幂等：没有缺失日期时几毫秒退出，所以每次 tick 退出都触发它也不费成本。今天的日记过 `DEVLOG_EOD_HOUR` 才生成；过去缺失的日子下次跑时自动补齐。
@@ -49,14 +49,12 @@ devlog 没有常驻进程，也不用任何系统级定时器。一切由 Claude
 │   └── .empty-YYYY-MM-DD              ← 已确认无活动的过去日期（不再探测）
 ├── _run.log                          ← devlog-daily.sh 日志
 ├── _tick.log                         ← plugin/scripts/tick 日志
-├── _consolidate.log                  ← devlog-consolidate.sh 日志
 └── .daily.lock/                      ← mkdir-lock 防并发
 
 <DEVLOG_VAULT_DIR>/                   ← Obsidian vault 内的目录
 ├── 2026-05-19.md
 ├── 2026-05-18.md
-├── ... (最近 KEEP_DAYS 天)
-└── _长期记忆.md                      ← 蒸馏累积
+└── ... (最近 KEEP_DAYS 天，超期直接删)
 ```
 
 ## 防御性设计
@@ -82,8 +80,8 @@ tick → claude -p (新 session) → 新 session 调工具 → 触发 PostToolUs
 ### 数据完整性
 - drafts 合成后留在 `_drafts/`，过 `DEVLOG_DRAFT_KEEP_DAYS` 天才清——删了日记可基于留存的 draft 重生成
 - 日记已存在但有更新的 draft → 自动重新生成，不丢当天后续的工作
-- 蒸馏成功才删原日记（rc=0 且产物非空才删）
-- 长期记忆 prepend 而非 overwrite，保留历史
+- 超期清理按文件名日期判龄（不用 mtime）：日记被重写或回填都会刷新 mtime，只有文件名日期反映这篇日记“属于哪天”
+- 清理只动 `YYYY-MM-DD.md`，`_` 开头的特殊文件一律跳过
 
 ## 性能 / 成本
 
@@ -93,7 +91,6 @@ tick → claude -p (新 session) → 新 session 调工具 → 触发 PostToolUs
 |------|------|---------------|
 | tick 抓片段 | 工作中每 ~30min | 小（输入/输出各几百 token） |
 | 日终合成 | 当天日记首次生成，及之后有新 draft 时重生成 | 中 |
-| 长期记忆蒸馏 | 每天一篇老日记跨过 14 天线 | 中 |
 
 典型工作日合计几毛钱量级——具体随工作时长和模型价格浮动。
 

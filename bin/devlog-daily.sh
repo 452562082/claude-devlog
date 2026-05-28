@@ -297,9 +297,15 @@ DRAFT_KEEP_DAYS="${DEVLOG_DRAFT_KEEP_DAYS:-30}"
 find "$STATE_DIR/_drafts" -type f -name "*.md" -mtime "+$DRAFT_KEEP_DAYS" -delete 2>/dev/null || true
 find "$STATE_DIR/_state" -type f -mtime "+$DRAFT_KEEP_DAYS" -delete 2>/dev/null || true
 
-# 顺带跑蒸馏（≥KEEP_DAYS 的老日记进 _长期记忆.md）
-if [ -x "$(dirname "$0")/devlog-consolidate.sh" ]; then
-  "$(dirname "$0")/devlog-consolidate.sh"
-elif [ -x "$HOME/bin/devlog-consolidate.sh" ]; then
-  "$HOME/bin/devlog-consolidate.sh"
-fi
+# ─── 清理超过 KEEP_DAYS 天的老日记（按文件名日期直接删，不蒸馏）─
+# 用文件名里的日期判龄，不用 mtime：日记可能因 draft 更新被重写、过去日期
+# 会被回填，mtime 都会刷新，只有文件名日期才反映这篇日记“属于哪天”。
+KEEP_DAYS="${DEVLOG_KEEP_DAYS:-30}"
+PRUNE_CUTOFF=$(date -v-"${KEEP_DAYS}"d +%F)
+for f in "$OUT_DIR"/*.md; do
+  [ -f "$f" ] || continue
+  b=$(basename "$f" .md)
+  [[ "$b" == _* ]] && continue   # 跳过 _ 开头的特殊文件
+  [[ ! "$b" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && continue
+  [[ "$b" < "$PRUNE_CUTOFF" ]] && rm -f "$f" && echo "  pruned $b (>$KEEP_DAYS days)"
+done

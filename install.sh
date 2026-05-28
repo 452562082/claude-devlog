@@ -28,7 +28,7 @@ fi
 
 # ─── 2. 把 bin/ 下脚本软链到 ~/bin ─────────────────────────
 mkdir -p "$HOME/bin"
-for script in devlog-daily.sh devlog-consolidate.sh; do
+for script in devlog-daily.sh; do
   src="$REPO_DIR/bin/$script"
   dst="$HOME/bin/$script"
   if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
@@ -72,7 +72,6 @@ fi
 echo ""
 echo "常用命令："
 echo "  立即跑一次日报：  DEVLOG_FORCE_TODAY=1 ~/bin/devlog-daily.sh"
-echo "  立即跑一次蒸馏：  ~/bin/devlog-consolidate.sh"
 echo "  看运行日志：      tail -f ~/.devlog/_run.log"
 echo "  看 tick 日志：    tail -f ~/.devlog/_tick.log"
 echo "  暂停整套系统：    claude plugin uninstall devlog@claude-devlog"
